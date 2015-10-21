@@ -3,27 +3,15 @@ const gulp = require('gulp');
 const source = require('vinyl-source-stream');
 const buffer = require('vinyl-buffer');
 const zip = require('gulp-zip');
-const forceDeploy = require('gulp-jsforce-deploy');
 const browserify = require('browserify');
 const watchify = require('watchify');
 const assign = require('lodash.assign');
 const gutil = require('gulp-util');
-const rereplace = require('gulp-regex-replace');
-
 const file = require('gulp-file');
 const through = require('through2');
 
 const packagexml = require('./tasks/lib/object2packagexml');
 const deploy = require('./tasks/deploy');
-
-// gulp.task('build', () => {
-//   browserify({
-//     entries: ['src/js/app.js']
-//   })
-//   .bundle()
-//   .pipe(source('bundle.js'))
-//   .pipe(gulp.dest("build"))
-// });
 
 const opts = assign({}, watchify.args, {
   entries: ['./src/js/app.js'],
@@ -47,27 +35,34 @@ function bundle() {
 gulp.task('pack', () => {
 
   const pagename = 'MyPage';
+  const apiversion = '35.0';
+
+
+  const sldsMeta = require('./tasks/resource-meta')('application/zip');
 
   const resourceBody = fs.readFileSync('./build/bundle.js', 'utf-8');
   const resourceMeta = require('./tasks/resource-meta')('application/javascript');
 
   const pageBody = require('./tasks/visualforce')(pagename);
-  const pageMeta = require('./tasks/page-meta')(pagename, '34.0');
+  const pageMeta = require('./tasks/page-meta')(pagename, apiversion);
 
   const ltng = require('./tasks/lightning')(pagename);
   const ltngComponent = ltng.component;
   const ltngController = ltng.controller;
 
   const packxml = packagexml({
-    version: '34.0',
+    version: apiversion,
     types: [
       {name: 'ApexPage', members: [pagename]},
-      {name: 'StaticResource', members: [pagename]},
+      {name: 'StaticResource', members: ['*']},
       {name: 'AuraDefinitionBundle', members: ['*']}
     ]
   });
 
-  through.obj()
+  // through.obj()
+  gulp.src('node_modules/@salesforce-ux/design-system/assets/**/*')
+    .pipe(zip('pkg/staticresources/SLDS.resource'))
+    .pipe(file(`pkg/staticresources/SLDS.resource-meta.xml`, sldsMeta))
     .pipe(file('pkg/package.xml', packxml))
     .pipe(file(`pkg/staticresources/${pagename}.resource`, resourceBody))
     .pipe(file(`pkg/staticresources/${pagename}.resource-meta.xml`, resourceMeta))
@@ -83,12 +78,12 @@ gulp.task('deploy', (cb) => {
   gulp
     .src('pkg/**', { base: '.' })
     .pipe(zip('pkg.zip'))
+    // .pipe(gulp.dest('./tmp'))
     .pipe(deploy({
       username: process.env.SF_USERNAME,
       password: process.env.SF_PASSWORD,
       deploy: { rollbackOnError: true }
     }))
-    .pipe(gulp.dest('./tmp'))
     .on('error', (err) => {
       cb(err);
     });
