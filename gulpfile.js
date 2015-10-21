@@ -7,6 +7,7 @@ const browserify = require('browserify');
 const watchify = require('watchify');
 const assign = require('lodash.assign');
 const gutil = require('gulp-util');
+const rereplace = require('gulp-regex-replace');
 
 // gulp.task('build', () => {
 //   browserify({
@@ -35,6 +36,32 @@ function bundle() {
     // .pipe(sourcemaps.init({loadMaps: true}))
     // .pipe(sourcemaps.write('./'))
     .pipe(gulp.dest('./build'));
+}
+
+function html2visualforce(stream, resourceName) {
+  function replaceToResourceURL(src) {
+    return `{!URLFOR($Resource.${resourceName}, '${src}')}`;
+  }
+  stream = ([
+    ' href="(css/.*?\.css)"',
+    '"(img/.*?.png)"',
+    ' src="([^"]+?)"'
+  ]).reduce((stream, regex) => {
+    stream.pipe({regex: regex, replace: replaceToResourceURL})
+  }, stream);
+  return stream
+    .pipe(replace('<html>', '<apex:page showHeader="false" standardStylesheets="false">'))
+    .pipe(replace('</html>', '</apex:page>'));
+  // return stream
+  //   .pipe(rereplace({
+  //     regex: ' href="(css/.*?\.css)"', replace: replaceToResourceURL
+  //   }))
+  //   .pipe(rereplace({
+  //     regex: '"(img/.*?.png)"', replace: replaceToResourceURL
+  //   }))
+  //   .pipe(rereplace({
+  //     regex: ' src="([^"]+?)"', replace: replaceToResourceURL
+  //   }))
 }
 
 gulp.task('deploy', () => {
