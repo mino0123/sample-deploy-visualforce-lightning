@@ -3,3 +3,4 @@ build
 tmp
 src/resources
 !src/resources/slds/styles/salesforce-lightning-design-system-scoped.min.css
+pkg
