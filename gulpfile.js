@@ -1,3 +1,4 @@
+const fs = require('fs');
 const gulp = require('gulp');
 const source = require('vinyl-source-stream');
 const buffer = require('vinyl-buffer');
@@ -9,6 +10,12 @@ const assign = require('lodash.assign');
 const gutil = require('gulp-util');
 const rereplace = require('gulp-regex-replace');
 
+const file = require('gulp-file');
+const through = require('through2');
+
+const packagexml = require('./tasks/lib/object2packagexml');
+const deploy = require('./tasks/deploy');
+
 // gulp.task('build', () => {
 //   browserify({
 //     entries: ['src/js/app.js']
@@ -18,15 +25,14 @@ const rereplace = require('gulp-regex-replace');
 //   .pipe(gulp.dest("build"))
 // });
 
-var opts = assign({}, watchify.args, {
+const opts = assign({}, watchify.args, {
   entries: ['./src/js/app.js'],
-  debug: true
+  // debug: true
 });
-var b = watchify(browserify(opts)); 
-
-gulp.task('build', bundle);
+const b = watchify(browserify(opts)); 
 b.on('update', bundle);
 b.on('log', gutil.log);
+gulp.task('build', bundle);
 
 function bundle() {
   b.bundle()
@@ -38,37 +44,52 @@ function bundle() {
     .pipe(gulp.dest('./build'));
 }
 
-function html2visualforce(stream, resourceName) {
-  function replaceToResourceURL(src) {
-    return `{!URLFOR($Resource.${resourceName}, '${src}')}`;
-  }
-  stream = ([
-    ' href="(css/.*?\.css)"',
-    '"(img/.*?.png)"',
-    ' src="([^"]+?)"'
-  ]).reduce((stream, regex) => {
-    stream.pipe({regex: regex, replace: replaceToResourceURL})
-  }, stream);
-  return stream
-    .pipe(replace('<html>', '<apex:page showHeader="false" standardStylesheets="false">'))
-    .pipe(replace('</html>', '</apex:page>'));
-  // return stream
-  //   .pipe(rereplace({
-  //     regex: ' href="(css/.*?\.css)"', replace: replaceToResourceURL
-  //   }))
-  //   .pipe(rereplace({
-  //     regex: '"(img/.*?.png)"', replace: replaceToResourceURL
-  //   }))
-  //   .pipe(rereplace({
-  //     regex: ' src="([^"]+?)"', replace: replaceToResourceURL
-  //   }))
-}
+gulp.task('pack', () => {
 
-gulp.task('deploy', () => {
-  gulp.src('./pkg/**', { base: "." })
+  const pagename = 'MyPage';
+
+  const resourceBody = fs.readFileSync('./build/bundle.js', 'utf-8');
+  const resourceMeta = require('./tasks/resource-meta')('application/javascript');
+
+  const pageBody = require('./tasks/visualforce')(pagename);
+  const pageMeta = require('./tasks/page-meta')(pagename, '34.0');
+
+  const ltng = require('./tasks/lightning')(pagename);
+  const ltngComponent = ltng.component;
+  const ltngController = ltng.controller;
+
+  const packxml = packagexml({
+    version: '34.0',
+    types: [
+      {name: 'ApexPage', members: [pagename]},
+      {name: 'StaticResource', members: [pagename]},
+      {name: 'AuraDefinitionBundle', members: ['*']}
+    ]
+  });
+
+  through.obj()
+    .pipe(file('pkg/package.xml', packxml))
+    .pipe(file(`pkg/staticresources/${pagename}.resource`, resourceBody))
+    .pipe(file(`pkg/staticresources/${pagename}.resource-meta.xml`, resourceMeta))
+    .pipe(file(`pkg/pages/${pagename}.page`, pageBody))
+    .pipe(file(`pkg/pages/${pagename}.page-meta.xml`, pageMeta))
+    .pipe(file(`pkg/aura/${pagename}/${pagename}.cmp`, ltngComponent))
+    .pipe(file(`pkg/aura/${pagename}/${pagename}Controller.js`, ltngController))
+    .pipe(gulp.dest('.'));
+});
+
+
+gulp.task('deploy', (cb) => {
+  gulp
+    .src('pkg/**', { base: '.' })
     .pipe(zip('pkg.zip'))
-    .pipe(forceDeploy({
+    .pipe(deploy({
       username: process.env.SF_USERNAME,
-      password: process.env.SF_PASSWORD
-    }));
+      password: process.env.SF_PASSWORD,
+      deploy: { rollbackOnError: true }
+    }))
+    .pipe(gulp.dest('./tmp'))
+    .on('error', (err) => {
+      cb(err);
+    });
 });
