@@ -1,5 +1,7 @@
 import React from 'react';
-import { Button } from 'react-lightning-design-system';
+import { Button, util } from 'react-lightning-design-system';
+
+util.setAssetRoot('/resource/SLDS');
 
 function click() { alert('Clicked'); }
 
